@@ -31,6 +31,7 @@ SAMM = {
 }
 
 data_dict = {
+    "samm_data": SAMM,
     "cambrian_737k": CAMBRIAN_737K,
     "cambrian_737k_pack": CAMBRIAN_737K_PACK,
     "mp_doc": MP_DOC,

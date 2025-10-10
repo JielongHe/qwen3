@@ -25,6 +25,10 @@ VIDEOCHATGPT = {
     "annotation_path": "PATH_TO_VIDEOCHATGPT_ANNOTATION",
     "data_path": "PATH_TO_VIDEOCHATGPT_DATA",
 }
+SAMM = {
+    "annotation_path": "./train.jsonl",
+    "data_path": "",
+}
 
 data_dict = {
     "cambrian_737k": CAMBRIAN_737K,

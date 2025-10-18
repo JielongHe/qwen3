@@ -62,7 +62,7 @@ torchrun \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     qwenvl/train/train_qwen.py \
-    --model_name_or_path "./check_qwen3/checkpoints_20251016_1639" \
+    --model_name_or_path "Qwen/Qwen3-VL-4B-Instruct" \
     --tune_mm_llm True \
     --tune_mm_vision False \
     --tune_mm_mlp False \

@@ -1,82 +1,98 @@
 import json
+import re
 import os
 
-# ========== 配置 ==========
-describe_temple = "You are a fake news detector. The news caption is: "
-describe_instruction = """
-Analyze the image and caption for manipulations. Only consider:
-- Face swap (full identity replacement)
-- Face attribute manipulation (e.g., emotion, age, gender)
-- Text swap in the caption (words replaced with misleading ones)
+# ========== 配置 ========   'swap_manipulation': "B. Face swap and text swap.",      # ✅ 同时有
+describe_temple = "The following are multiple choice questions about fake news detection. \n\nThe caption of news is: "
+describe_ques_latter = ". The identity and emotion of the face, and the semantic and sentiment of the text should not be manipulated. Question: Is there any face swap/attribute or text_swap in the news?\nA. No.\nB. Only face swap.\nC. Only face attribute.\nD. Only text swap.\nE. Face swap and text swap.\nF. Face attribute and text swap.\nThe options is:"
+face_text_locate = "If there is manipulation of a face, locate the most likely manipulated face in the image and append the results to your selected option. If there is text_swap, list all swapped words in the caption.\nThe answer is:"
 
-Choose one option:
-A. No manipulation.
-B. Face swap and text swap.
-C. Face attribute manipulation and text swap.
-
-If B or C, also:
-- Give the bounding box of the most likely manipulated face as (x1,y1,x2,y2)
-- List all swapped words in the caption as [word1, word2, ...]
-
-Respond strictly in this format:
-Option: X
-Face: (x1,y1,x2,y2) or None
-Text: [word1, word2, ...] or []
-
-Do not explain.
-"""
-
-label_to_option = {
-    'orig': 'A',
-    'swap_manipulation': 'B',
-    'attribute_manipulation': 'C'
+# ✅ 修正：选项必须严格匹配题干
+describles_answ = {
+    'orig': "A. No.",
+    'swap_manipulation': "E. Face swap and text swap.",      # ✅ 同时有 face swap + text swap → 选 E
+    'attribute_manipulation': "F. Face attribute and text swap."  # ✅ 同时有 attribute + text swap → 选 F
 }
 
+def pre_caption(caption, max_words):
+    caption = re.sub(
+        r"([,.'!?\"()*#:;~])",
+        '',
+        caption.lower(),
+    ).replace('-', ' ').replace('/', ' ').replace('<person>', 'person')
+    caption = re.sub(r"\s{2,}", ' ', caption).rstrip('\n').strip()
+    caption_words = caption.split(' ')
+    if len(caption_words) > max_words:
+        caption = ' '.join(caption_words[:max_words])
+    return caption
+
+def extract_swapped_words(caption, fake_text_pos):
+    words = caption.split()
+    swapped_words = [words[i] for i in fake_text_pos if 0 <= i < len(words)]
+    return f" Swapped words: {', '.join(swapped_words)}" if swapped_words else ""
+
+def denormalize_fake_image_box_xyxy(fake_image_box, image_width, image_height):
+    """将归一化 [cx, cy, w, h] 转为绝对像素 [x1, y1, x2, y2]"""
+    cx, cy, w, h = fake_image_box
+    x1 = (cx - w / 2) * image_width
+    y1 = (cy - h / 2) * image_height
+    x2 = (cx + w / 2) * image_width
+    y2 = (cy + h / 2) * image_height
+    return [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+
+def get_bbox(bbox):
+    """假设 bbox 是 [x, y, w, h] 像素坐标，转为 [x1, y1, x2, y2]"""
+    xmin, ymin, w, h = bbox
+    return [int(xmin), int(ymin), int(xmin + w), int(ymin + h)]
+
+# ========== 主函数 ==========
 def generate_qwen_vl_jsonl_from_list(
     data_list: list,
-    output_jsonl_path: str = "train.jsonl",
-    base_image_dir: str = "./images"
+    output_jsonl_path: str = "train.json",
+    base_image_dir: str = "./"  # 图像根目录
 ):
-    with open(output_jsonl_path, "w", encoding="utf-8") as f_out:
+    samples = []
+    with open(output_jsonl_path, "w", encoding="utf-8") as f:
         for item in data_list:
-            img_name = item['image']
-            img_path = os.path.join(base_image_dir, img_name).replace("\\", "/")
+            # ✅ 修正：简化路径处理，避免 unicode_escape 破坏路径
+            img_path = os.path.join(base_image_dir, item['image'])
+            # 只做基础清理，避免破坏合法路径
+            img_path = img_path.replace("'", "").replace(",_", "_")
 
-            caption = item['text']
-            user_content = f"{describe_temple}\"{caption}\"{describe_instruction}"
+            caption = pre_caption(item['text'], 30)
+            question = '<image>\n' + describe_temple + caption + describe_ques_latter + face_text_locate
 
-            label = item.get('fake_cls', 'orig')
-            option = label_to_option.get(label, 'A')
+            label = item['fake_cls']
+            answer = describles_answ.get(label, "A. No.")  # 默认安全值
 
-            if option == 'A':
-                assistant_content = "Option: A\nFace: None\nText: []"
-            else:
-                # 假设这里有逻辑获取或计算出正确的face和text信息
-                bbox_xyxy = "(0,0,0,0)"  # 示例占位符
-                swapped_words = "[]"  # 示例占位符
-                
-                assistant_content = f"Option: {option}\nFace: {bbox_xyxy}\nText: {swapped_words}"
-
+            # ✅ 修正：只在有篡改时添加 bbox 和 swapped words
+            if label in ['swap_manipulation', 'attribute_manipulation']:
+                # ✅ 重要：判断 bbox 是归一化还是像素，选择处理方式
+                fake_image_box = item.get('fake_image_box', [0,0,0,0])
+                x1, y1, x2, y2 = get_bbox(fake_image_box)
+                # ✅ 修正：用自然语言描述 bbox，而不是 JSON 格式
+                answer += f"\nManipulated face bbox: [{x1}, {y1}, {x2}, {y2}]"
+            # 添加被替换的词
+            fake_text_pos = item.get('fake_text_pos', [])
+            if fake_text_pos:
+                answer += extract_swapped_words(caption, fake_text_pos)
             sample = {
                 "image": img_path,
                 "conversations": [
-                    {"from": "human", "value": f"{user_content}<image>"},
-                    {"from": "gpt", "value": assistant_content}
+                    {"from": "human", "value": question},
+                    {"from": "gpt", "value": answer}
                 ]
             }
-            f_out.write(json.dumps(sample, ensure_ascii=False) + "\n")
+            samples.append(sample)
+            f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
     print(f"✅ 已生成 {output_jsonl_path}，共 {len(data_list)} 条数据")
 
 
 # ========== 执行 ==========
 if __name__ == "__main__":
-    train_js = '/scratch-shared/npu/qwen/SAMM_data/SAMM-with-CAP/test.json'
+    train_js = '/scratch-shared/khe/qwen/SAMM/SAMM-with-CAP/train.json'
     with open(train_js, "r", encoding="utf-8") as f:
         train_data = json.load(f)
 
-    generate_qwen_vl_jsonl_from_list(
-        train_data,
-        output_jsonl_path="test.jsonl",
-        base_image_dir="/scratch-shared/npu/qwen/SAMM_data/"  # 替换为实际图像目录
-    )
+    generate_qwen_vl_jsonl_from_list(train_data, "train.jsonl", "/scratch-shared/khe/qwen/SAMM/")

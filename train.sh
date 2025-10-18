@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=8
 #SBATCH --gpus=4
 #SBATCH --partition=gpu_h100
-#SBATCH --time=96:00:00
+#SBATCH --time=36:00:00
 #SBATCH --mem=84G
 #SBATCH --exclusive
 #SBATCH --job-name=qwen

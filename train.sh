@@ -30,7 +30,7 @@ fi
 echo "✅ CUDA_HOME = $CUDA_HOME"
 
 # =============== 激活 Conda 环境 ===============
-source /home/npu/miniconda3/bin/activate qwen
+source /home/khe/miniconda3/bin/activate qwen
 
 # =============== 跳过 DeepSpeed CUDA 算子编译（关键！）===============
 export DS_SKIP_CUDA_BUILD=1
